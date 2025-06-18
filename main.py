@@ -110,14 +110,18 @@ def send_telegram_photo(image_buf, caption=""):
     )
 
 def job():
-    today = datetime.now().strftime("%Y-%m-%d")
+   today = datetime.now().strftime("%Y-%m-%d")
     send_telegram_text(f"📈 오늘의 주식 뉴스 ({today})")
 
     for name, symbol in tickers.items():
         try:
             stock = yf.Ticker(symbol)
-            price = stock.history(period="1d")["Close"][0]
+            hist = stock.history(period="1d")
+            if hist.empty:
+                send_telegram_text(f"🔹 {name} ({symbol}) - 주가 데이터 없음")
+                continue
 
+            price = hist["Close"][0]
             chart_buf = create_chart(symbol)
             news_summary = get_news(symbol)
 
@@ -130,9 +134,7 @@ def job():
             if chart_buf:
                 send_telegram_photo(chart_buf, caption=caption)
             else:
-                send_telegram_text(caption)
-
+                send_telegram_text(caption + "\n(⚠️ 차트 없음)")
         except Exception as e:
             send_telegram_text(f"🔹 {name} ({symbol}) - 오류 발생: {str(e)}")
-
 job()
