@@ -111,7 +111,7 @@ def send_telegram_photo(image_buf, caption=""):
 
 def job():
    today = datetime.now().strftime("%Y-%m-%d")
-    send_telegram_text(f"📈 오늘의 주식 뉴스 ({today})")
+   send_telegram_text(f"📈 오늘의 주식 뉴스 ({today})")
 
     for name, symbol in tickers.items():
         try:
