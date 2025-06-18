@@ -1,8 +1,12 @@
+import os
 import requests
-from datetime import datetime
 import yfinance as yf
 import xml.etree.ElementTree as ET
-import os
+import matplotlib.pyplot as plt
+from io import BytesIO
+from datetime import datetime, timedelta
+from PIL import Image
+import nltk
 
 BOT_TOKEN = "7088690019:AAEhoGxvJ7JehXatg6aCyBtU8cALi7vvFuQ"
 CHAT_ID = "953083803"
@@ -22,37 +26,70 @@ tickers = {
     "DECK": "DECK"
 }
 
+# 간단한 감성 단어 사전
+positive_words = ["soar", "rise", "beat", "profit", "record", "growth", "upgrade"]
+negative_words = ["fall", "drop", "loss", "warn", "cut", "down", "plunge"]
+
+def get_sentiment(text):
+    text = text.lower()
+    if any(word in text for word in positive_words):
+        return "😀 긍정"
+    elif any(word in text for word in negative_words):
+        return "😞 부정"
+    else:
+        return "😐 중립"
+
 def translate_deepl(text):
     try:
         url = "https://api-free.deepl.com/v2/translate"
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
         data = {
             "auth_key": DEEPL_API_KEY,
             "text": text,
             "target_lang": "KO"
         }
-        res = requests.post(url, headers=headers, data=data)
-        result = res.json()
-        return result["translations"][0]["text"]
+        res = requests.post(url, data=data)
+        return res.json()["translations"][0]["text"]
     except:
-        return text  # 번역 실패 시 원문 그대로 출력
+        return text
 
-def get_news_summary(symbol):
+def get_news(symbol):
+    rss_url = f"https://news.google.com/rss/search?q={symbol}+stock"
+    res = requests.get(rss_url, timeout=5)
+    root = ET.fromstring(res.content)
+    items = root.findall(".//item")[:3]
+    news_list = []
+    for item in items:
+        title = item.find("title").text
+        link = item.find("link").text
+        translated = translate_deepl(title)
+        sentiment = get_sentiment(title)
+        news_list.append(f"{sentiment} {translated}\n🔗 [원문 보기]({link})")
+    return "\n\n".join(news_list) if news_list else "💬 관련 뉴스 없음"
+
+def create_chart(ticker):
     try:
-        rss_url = f"https://news.google.com/rss/search?q={symbol}+stock"
-        res = requests.get(rss_url, timeout=5)
-        root = ET.fromstring(res.content)
-        item = root.find(".//item")
-        if item is not None:
-            title = item.find("title").text
-            link = item.find("link").text
-            translated_title = translate_deepl(title)
-            return f'💬 {translated_title}\n🔗 [원문 보기]({link})'
-    except:
-        return "💬 뉴스 가져오기 오류"
-    return "💬 관련 뉴스 없음"
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="7d")
+        if hist.empty:
+            return None
 
-def send_telegram(message):
+        plt.figure(figsize=(6, 3))
+        plt.plot(hist.index, hist["Close"], marker="o")
+        plt.title(f"{ticker} 최근 주가")
+        plt.xlabel("날짜")
+        plt.ylabel("종가")
+        plt.grid(True)
+        plt.tight_layout()
+
+        buf = BytesIO()
+        plt.savefig(buf, format="PNG")
+        plt.close()
+        buf.seek(0)
+        return buf
+    except:
+        return None
+
+def send_telegram_text(message):
     requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         data={
@@ -63,23 +100,39 @@ def send_telegram(message):
         }
     )
 
+def send_telegram_photo(image_buf, caption=""):
+    files = {'photo': ('chart.png', image_buf)}
+    data = {'chat_id': CHAT_ID, 'caption': caption}
+    requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+        files=files,
+        data=data
+    )
+
 def job():
     today = datetime.now().strftime("%Y-%m-%d")
-    full_message = f"📈 오늘의 주식 뉴스 ({today})\n\n"
+    send_telegram_text(f"📈 오늘의 주식 뉴스 ({today})")
 
     for name, symbol in tickers.items():
         try:
             stock = yf.Ticker(symbol)
             price = stock.history(period="1d")["Close"][0]
-            news = get_news_summary(symbol)
-            full_message += (
-                f"🔹 {name} ({symbol})\n"
-                f"- 종가: ${price:.2f}\n"
-                f"{news}\n\n"
-            )
-        except Exception as e:
-            full_message += f"🔹 {name} ({symbol}) - 오류 발생: {str(e)}\n\n"
 
-    send_telegram(full_message)
+            chart_buf = create_chart(symbol)
+            news_summary = get_news(symbol)
+
+            caption = (
+                f"🔹 {name} ({symbol})\n"
+                f"- 종가: ${price:.2f}\n\n"
+                f"{news_summary}"
+            )
+
+            if chart_buf:
+                send_telegram_photo(chart_buf, caption=caption)
+            else:
+                send_telegram_text(caption)
+
+        except Exception as e:
+            send_telegram_text(f"🔹 {name} ({symbol}) - 오류 발생: {str(e)}")
 
 job()
