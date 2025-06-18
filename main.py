@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from PIL import Image
 import nltk
 
-BOT_TOKEN = "7088690019:AAEhoGxvJ7JehXatg6aCyBtU8cALi7vvFuQ"
+BOT_TOKEN = "7088690019:AAElXpIK04OXWYlEIOEBBbRgoupAH2Zx5V0"
 CHAT_ID = "953083803"
 DEEPL_API_KEY = "69f88b38-1996-47ec-ad67-e0b0c9072749:fx" 
 
